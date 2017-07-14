@@ -281,7 +281,7 @@ descript_corpus = tm_map(descript_corpus, removePunctuation)
 descript_corpus = tm_map(descript_corpus, removeWords, c("the", "and"))
 descript_corpus =  tm_map(descript_corpus, stripWhitespace)
 descript_dtm <- DocumentTermMatrix(descript_corpus)
-descript_dtm <- removeSparseTerms(descript_dtm, 0.95)
+descript_dtm <- removeSparseTerms(descript_dtm, 0.975)
 findFreqTerms(descript_dtm, 100)
 raw_freq = data.frame(sort(colSums(as.matrix(descript_dtm)), decreasing=TRUE))
 raw_freq
@@ -358,7 +358,10 @@ ind_day_avg <- colMedians(table(ind_top_crime$Year, droplevels(ind_top_crime$Cat
 veterans_avg <- colMedians(table(veterans_top_crime$Year, droplevels(veterans_top_crime$Category)))
 christmas_avg <- colMedians(table(christmas_top_crime$Year, droplevels(christmas_top_crime$Category)))
 reg_day_top_crime <- regular_day[regular_day$Category %in% as.vector(top_crimes$Var1),]
+reg_day_top_crime$DateOnly <- substring(reg_day_top_crime$Dates, 1, 10)
+#reg_day_top_crime$DateOnly
 reg_day_avg <- colMedians(table(reg_day_top_crime$DateOnly, droplevels(reg_day_top_crime$Category)))
+#reg_day_avg
 ```
 ```{r}
 holiday_comparison_df <- data.frame(NewYear=new_year_avg, Ind=ind_day_avg, Veterans=veterans_avg, Christmas=christmas_avg, Regular=reg_day_avg)
@@ -385,8 +388,9 @@ wkday$Week <- "Weekday"
 wkday[wkday$DayOfWeek == "Saturday" | wkday$DayOfWeek == "Sunday",]$Week <- "Weekend"
 #wkday_top_crime <- wkday[wkday$Category %in% as.vector(top_crimes$Var1),]
 wkday_top_crime <- wkday
-wkday_result <- data.frame(Weekday=table(wkday_top_crime$Category, wkday_top_crime$Week)[,1]/count(wkday_top_crime$Week)$freq[1],
-                           Weekend=table(wkday_top_crime$Category, wkday_top_crime$Week)[,2]/count(wkday_top_crime$Week)$freq[2])
+wk_table <- table(wkday_top_crime$Week)
+wkday_result <- data.frame(Weekday=table(wkday_top_crime$Category, wkday_top_crime$Week)[,1]/wk_table["Weekday"],
+                           Weekend=table(wkday_top_crime$Category, wkday_top_crime$Week)[,2]/wk_table["Weekend"])
 wkday_result
 g + theme(legend.position="right")
 par(xpd=TRUE)
@@ -398,8 +402,25 @@ legend("topright",
 It seems that whether a day is a weekday or a weekend doesn't affect both the category and the quantity of crimes...So criminals doesn't have day-offs! SAD!
 Umm common sense tells me that more crimes take place at night than during the day. Let's divide the time into day and night!
 ```{r}
-
+library(chron)
+dayNight <- data.frame(Times = times(substring(train$Dates,12)), Cat = train$Category)
+breaks <- c(0,6,10,14,18,24)/24
+labels <- c("EarlyMorning","Morning","Noon","Afternoon","Evening")
+dayNight$ind <- cut(dayNight$Times, breaks, labels, include.lowest = TRUE)
+dayNight
+g <- ggplot(dayNight, aes(ind))
+g + geom_bar() + geom_bar(aes(fill=Cat)) + ggtitle("Crime in a day") + theme(axis.text.x = element_text(angle=90,hjust=1))
 ```
+```{r}
+dayNight <- data.frame(Times = times(substring(train$Dates,12)), Cat = train$Category)
+breaks <- c(0,5, 20, 24)/24
+labels <- c("Night","Day","Night2")
+dayNight$ind <- cut(dayNight$Times, breaks, labels, include.lowest = TRUE)
+dayNight$ind <- gsub("Night2", "Night", dayNight$ind)
+g <- ggplot(dayNight, aes(ind))
+g + geom_bar() + geom_bar(aes(fill=Cat)) + ggtitle("Crime in a day") + theme(axis.text.x = element_text(angle=90,hjust=1))
+```
+
 Also, maybe crimes are correlated with seasons? Let's check it out! But again, the incompleteness of the data causes us a lot of trouble and might lead to inaccuracies, so some sort of averaging is needed.
 ```{r}
 seasons <- train
@@ -412,10 +433,11 @@ seasons[seasons$Month == "09" | seasons$Month == "10" | seasons$Month == "11",]$
 # December, January, February <=> Winter
 seasons[seasons$Month == "12" | seasons$Month == "01" | seasons$Month == "02",]$Season <- "Winter"
 table(seasons$Category, seasons$Season)
-seasons_std <- data.frame(Spring=table(seasons$Category, seasons$Season)[,"Spring"]/count(seasons$Season)[count(seasons$Season)$x == "Spring",]$freq, 
-                          Summer=table(seasons$Category, seasons$Season)[,"Summer"]/count(seasons$Season)[count(seasons$Season)$x == "Summer",]$freq,
-                          Fall=table(seasons$Category, seasons$Season)[,"Fall"]/count(seasons$Season)[count(seasons$Season)$x == "Fall",]$freq,
-                          Winter=table(seasons$Category, seasons$Season)[,"Winter"]/count(seasons$Season)[count(seasons$Season)$x == "Winter",]$freq)
+seasons_table <- table(seasons$Season)
+seasons_std <- data.frame(Spring=table(seasons$Category, seasons$Season)[,"Spring"]/seasons_table["Spring"], 
+                          Summer=table(seasons$Category, seasons$Season)[,"Summer"]/seasons_table["Summer"],
+                          Fall=table(seasons$Category, seasons$Season)[,"Fall"]/seasons_table["Fall"],
+                          Winter=table(seasons$Category, seasons$Season)[,"Winter"]/seasons_table["Winter"])
 seasons_std 
 g + theme(legend.position="right")
 par(xpd=TRUE)
@@ -425,5 +447,17 @@ legend("topright",
        fill = rainbow(nrow(seasons_std)), cex=0.4)
 ```
 PdDistrict is still unchecked.
+```{r}
+
+```
 
 Decision Tree is also very helpful in data exploration to determine which variables are the most significant.
+```{r}
+
+```
+Let's do some text mining as this is by far the most useful information!
+```{r}
+library("wordnet")
+synonyms(train$Category[1], "NOUN")
+```
+
