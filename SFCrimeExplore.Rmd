@@ -1,0 +1,429 @@
+---
+title: "San Francisco Crime Classification"
+output: html_notebook
+---
+
+```{r}
+train <- read.csv(file="train.csv", na.strings=c(""))
+test <- read.csv(file="test.csv", na.strings=c(""))
+summary(train)
+```
+```{r}
+library(Amelia)
+missmap(train, main = "Missing values vs observed")
+```
+
+It seems that here are **no missing values**. Great!
+```{r}
+# Overall structure
+str(train)
+```
+- There might be certain correlation between the resolution and the type of crime?
+- Might have something to do with the day of week?
+- Maybe we can regroup crimes to reduce the number of categories? Or just select the top crimes as our focus?
+```{r}
+# Get to know data types
+sapply(train, class)
+```
+```{r}
+# summarize the class distribution
+cat_percentage <- prop.table(table(train$Category)) * 100
+cbind(freq=table(train$Category), percentage=cat_percentage)
+```
+
+```{r}
+# Get top crimes
+crime_categories_df <- as.data.frame(table(train$Category))
+crime_categories_df[with(crime_categories_df, order(-Freq)),]
+top_crimes <- head(crime_categories_df[with(crime_categories_df, order(-Freq)),], n=10)
+```
+
+```{r}
+# Create data for the graph.
+x <- top_crimes$Freq
+labels <- top_crimes$Var1
+piepercent <- round(100*x/sum(x), 1)
+# Plot the chart.
+pie(x, labels = piepercent, main = "Top 10 Crimes",col = rainbow(length(x)))
+legend("right", as.character(labels), cex = 0.8,
+   fill = rainbow(length(x)))
+```
+We can see that **larceny/theft** and non-criminal takes up much of the pie, followed by **non-criminal** and **assult**. '**Other offenses**' also accounts for a large proportion, but it contains ambiguities and lacks information.
+
+Is there a day of week that has significantly more crimes than other days?
+The distribution is rather even. But Friday is surely a peak (maybe people consume more after a week's work) while Sunday is a slump (most people stay at home).
+```{r}
+library(ggplot2)
+table(train$Category ,train$DayOfWeek)
+g <- ggplot(train, aes(DayOfWeek))
+g + geom_bar(aes(fill = Category)) + theme(legend.position="bottom")
+```
+How does criminal activities change over the years? Does it increase or decrease or stay the same?
+
+```{r}
+train$Year <- substring(train$Dates, 1, 4)
+train$Month <- substring(train$Dates, 6, 7)
+crime_history <- head(as.vector(table(train$Month,train$Year)), -12)
+crime_history
+crime_ts <- ts(crime_history, frequency=12, start=c(2003,1))
+crime_ts 
+plot.ts(crime_ts)
+```
+We can see that the basic trend is declining from 2004 to 2010. Then, crime rate begins to rise until 2014. But noticeably we can clearly observe the seasonality throughout the years. So it's worthwhile to investigate the fluctuation over the months. Maybe some analysis over time-in-a-day would be helpful too. For now let's just decompose the data.
+```{r}
+crime_components <- decompose(crime_ts)
+plot(crime_components)
+```
+It seems the trend is just what I described, roughly. The seasonal component seems really interesting.
+```{r}
+train_incomplete <- subset(train, Year != 2015)
+tb <- table(train_incomplete$Month, train_incomplete$Category)
+df <- data.frame(month=as.integer(row.names(tb)), crime_freq=as.vector(tb), crime_categories=rep(colnames(tb), each=length(row.names(tb))))
+# plot
+ggplot(data = df, aes(x=month, y=crime_freq)) + geom_line(aes(colour=crime_categories)) + theme(legend.position="left")
+```
+```{r}
+# Create the data for the chart.
+tb <- table(train_incomplete$Month, train_incomplete$Category)
+v = rowSums(tb)
+# Plot the bar chart.
+plot(v,type = "o", col = "red", xlab = "Month", ylab = "Crime Frequency",
+   main = "Monthly Crime")
+```
+We can see that, usually December and Feburary has the lowest crime rate (perhaps people feel too cold to leave home). June, July, August have low frequency as well. Crime activities peak in May and October. This pattern is observed by all major categories of crime. 
+However, the data of December is significantly lower than the others. Maybe it's because of the lack of data in 2015. *I'll get rid of the data of 2015 when necessary and adjust the previous results.*
+
+Just an example of mapping SF.
+```{r}
+library(ggplot2)
+library(ggmap)
+library(maptools)
+library(ggthemes)
+library(rgeos)
+library(broom)
+library(dplyr)
+library(plyr)
+library(grid)
+library(gridExtra)
+library(reshape2)
+library(scales)
+
+plotTheme <- function(base_size = 12) {
+  theme(
+    text = element_text( color = "black"),
+    plot.title = element_text(size = 18,colour = "black"),
+    plot.subtitle = element_text(face="italic"),
+    plot.caption = element_text(hjust=0),
+    axis.ticks = element_blank(),
+    panel.background = element_blank(),
+    panel.grid.major = element_line("grey80", size = 0.1),
+    panel.grid.minor = element_blank(),
+    strip.background = element_rect(fill = "grey80", color = "white"),
+    strip.text = element_text(size=12),
+    axis.title = element_text(size=8),
+    axis.text = element_text(size=8),
+    axis.title.x = element_text(hjust=1),
+    axis.title.y = element_text(hjust=1),
+    plot.background = element_blank(),
+    legend.background = element_blank(),
+    legend.title = element_text(colour = "black", face = "italic"),
+    legend.text = element_text(colour = "black", face = "italic"))
+}
+ 
+# And another that we will use for maps
+mapTheme <- function(base_size = 12) {
+  theme(
+    text = element_text( color = "black"),
+    plot.title = element_text(size = 18,colour = "black"),
+    plot.subtitle=element_text(face="italic"),
+    plot.caption=element_text(hjust=0),
+    axis.ticks = element_blank(),
+    panel.background = element_blank(),
+    panel.grid.major = element_line("grey80", size = 0.1),
+    strip.text = element_text(size=12),
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.background = element_rect(fill = "grey80", color = "white"),
+    plot.background = element_blank(),
+    legend.background = element_blank(),
+    legend.title = element_text(colour = "black", face = "italic"),
+    legend.text = element_text(colour = "black", face = "italic"))
+}
+ 
+# Define some palettes
+palette_9_colors <- c("#0DA3A0","#2999A9","#458FB2","#6285BB","#7E7CC4","#9A72CD","#B768D6","#D35EDF","#F055E9")
+palette_8_colors <- c("#0DA3A0","#2D97AA","#4D8CB4","#6E81BF","#8E76C9","#AF6BD4","#CF60DE","#F055E9")
+palette_7_colors <- c("#2D97AA","#4D8CB4","#6E81BF","#8E76C9","#AF6BD4","#CF60DE","#F055E9")
+palette_1_colors <- c("#0DA3A0")
+
+
+# Read in a csv of home sale transactions directly from github.
+sf <- read.csv("https://raw.githubusercontent.com/simonkassel/Visualizing_SF_home_prices_R/master/Data/SF_home_sales_demo_data.csv")
+ 
+# We will need to consider Sale Year as a categorical variable so we convert it from a numeric variable to a factor
+sf$SaleYr <- as.factor(sf$SaleYr)
+
+# Define the URL of the zipped shapefile
+URL <- "https://github.com/simonkassel/Visualizing_SF_home_prices_R/raw/master/Data/SF_neighborhoods.zip"
+# Download the shapefile to your working directory and unzip it.
+download.file(URL, "SF_neighborhoods.zip")
+unzip("SF_neighborhoods.zip")
+# Read it into R as a spatial polygons data frame & plot
+neighb <- readShapePoly("SF_neighborhoods")
+plot(neighb)
+
+
+# Define the bounding box
+bbox <- neighb@bbox
+
+# Manipulate these values slightly so that we get some padding on our basemap between the edge of the data and the edge of the map
+sf_bbox <- c(left = bbox[1, 1] - .01, bottom = bbox[2, 1] - .005, 
+             right = bbox[1, 2] + .01, top = bbox[2, 2] + .005)
+# Download the basemap
+basemap <- get_stamenmap(
+  bbox = sf_bbox,
+  zoom = 13,
+  maptype = "toner-lite")
+
+# # Map it
+# bmMap <- ggmap(basemap) + mapTheme() + 
+#   labs(title="San Francisco basemap")
+# bmMap
+
+# Define the bounding box
+bbox <- neighb@bbox
+ 
+# Manipulate these values slightly so that we get some padding on our basemap between the edge of the data and the edge of the map
+sf_bbox <- c(left = bbox[1, 1] - .01, bottom = bbox[2, 1] - .005, 
+             right = bbox[1, 2] + .01, top = bbox[2, 2] + .005)
+# Download the basemap
+basemap <- get_stamenmap(
+  bbox = sf_bbox,
+  zoom = 13,
+  maptype = "toner-lite")
+ 
+# # Map it
+# bmMap <- ggmap(basemap) + mapTheme() + 
+#   labs(title="San Francisco basemap")
+# bmMap
+
+# 
+# prices_mapped_by_year <- ggmap(basemap) + 
+#   geom_point(data = sf, aes(x = long, y = lat, color = SalePrice), 
+#              size = .25, alpha = 0.6) +
+#   facet_wrap(~SaleYr, scales = "fixed", ncol = 4) +
+#   coord_map() +
+#   mapTheme() + theme(legend.position = c(.85, .25)) +
+#   scale_color_gradientn("Sale Price", 
+#                         colors = palette_8_colors,
+#                         labels = scales::dollar_format(prefix = "$")) +
+#   labs(title="Distribution of San Francisco home prices",
+#        subtitle="Nominal prices (2009 - 2015)",
+#        caption="Source: San Francisco Office of the Assessor-Recorder\n@KenSteif & @SimonKassel")
+# prices_mapped_by_year
+```
+```{r}
+train[, c("X", "Y", "Year", "Category")]
+crime_location <- data.frame( train[, c("X", "Y", "Year", "Category")] )
+crime_location
+```
+```{r}
+# Manipulate these values slightly so that we get some padding on our basemap between the edge of the data and the edge of the map
+sf_bbox <- c(left = bbox[1, 1] - .01, bottom = bbox[2, 1] - .005, 
+         right = bbox[1, 2] + .01, top = bbox[2, 2] + .005)
+# Download the basemap
+basemap <- get_stamenmap(
+  bbox = sf_bbox,
+  zoom = 13,
+  maptype = "toner-lite")
+ 
+# Map it
+bmMap <- ggmap(basemap) + mapTheme() + 
+  labs(title="San Francisco Crime Map")
+bmMap + geom_point(data=crime_location, aes(x=X, y=Y, color=Category), size=0.7, alpha=0.3) + theme(legend.position = "right")
+```
+
+```{r}
+top_crime_map <- crime_location[crime_location$Category %in% as.vector(top_crimes$Var1),]
+bmMapTop <- ggmap(basemap) + mapTheme() + 
+  labs(title="San Francisco Top Crime Map")
+bmMapTop + geom_point(data=top_crime_map, aes(x=X, y=Y, color=Category), size=0.7, alpha=0.3) + theme(legend.position = "right")
+```
+Although this map is beautiful, it provides us with too much information to be insightful. To get more out of this visualisation, we need to limit the categories to those most 'popular' crimes, or we need to regroup the crime categories.
+```{r}
+# Map it
+bmMap <- ggmap(basemap) + mapTheme() + 
+  labs(title="San Francisco basemap")
+
+prices_mapped_by_year <- ggmap(basemap) + 
+  geom_point(data = top_crime_map, aes(x = X, y = Y, color = Category), 
+             size = .25, alpha = 0.6) +
+  facet_wrap(~Year, scales = "fixed", ncol = 4) +
+  coord_map() +
+  mapTheme() + theme(legend.position = "right") +
+  labs(title="Top 10 Crimes in San Francisco",
+       subtitle="2003 - 2015")
+prices_mapped_by_year
+```
+Ok anyways... Thanks to Kelvin, I noticed there is a very strong correlation between the Descrition column and the Category column. Some text mining is needed though.
+```{r}
+#train$Descript
+library(tm)
+descript <- removeNumbers(removePunctuation(tolower(as.vector(train$Descript)))) 
+descript <- removeWords(descript, stopwords("en"))
+descript_corpus <- Corpus(VectorSource(train$Descript))
+descript_corpus = tm_map(descript_corpus, content_transformer(tolower))
+descript_corpus = tm_map(descript_corpus, removeNumbers)
+descript_corpus = tm_map(descript_corpus, removePunctuation)
+descript_corpus = tm_map(descript_corpus, removeWords, c("the", "and"))
+descript_corpus =  tm_map(descript_corpus, stripWhitespace)
+descript_dtm <- DocumentTermMatrix(descript_corpus)
+descript_dtm <- removeSparseTerms(descript_dtm, 0.95)
+findFreqTerms(descript_dtm, 100)
+raw_freq = data.frame(sort(colSums(as.matrix(descript_dtm)), decreasing=TRUE))
+raw_freq
+wordcloud(rownames(raw_freq), raw_freq[,1], max.words=100, colors=brewer.pal(1, "Dark2"))
+```
+```{r}
+descript_dtm_tfidf <- DocumentTermMatrix(descript_corpus, control = list(weighting = weightTfIdf))
+descript_dtm_tfidf = removeSparseTerms(descript_dtm_tfidf, 0.975)
+freq = data.frame(sort(colSums(as.matrix(descript_dtm_tfidf)), decreasing=TRUE))
+freq
+wordcloud(rownames(freq), freq[,1], max.words=100, colors=brewer.pal(1, "Dark2"))
+```
+Ok, let's try to search for some *keywords* in the descript column that matches the category column.
+```{r}
+unique_cat <- unique(train$Category)
+x <- ""
+for(cat in unique(train$Category)) {
+  x <- paste(x, cat, sep="|")
+}
+x <- tolower(substring(x,2)) 
+match_count_table <- table(grepl(x, tolower(train$Descript)))
+match_count_table
+prop.table(match_count_table)
+```
+So about 20% of the DESCRIPT contains the CATEGORY keywords. **There is a rather strong correlation indeed. This is definitely going to be a feature.**
+How about the **holidays**? Let's get some data about the public holiday in San Francisco!!!
+```{r}
+regular_day <- train
+# Holidays 
+new_year <- regular_day[grepl("[0-9]{4}-01-01", regular_day$Dates),]
+regular_day <- regular_day[!grepl("[0-9]{4}-01-01", regular_day$Dates),]
+#MLK <- # Third Monday in January
+#presidents_day <- # Third Monday in Febrary
+#easter <- # Arr
+#memorial_day <- # Last Monday in May
+independence_day <- regular_day[grepl("[0-9]{4}-07-04", regular_day$Dates),]
+regular_day <- regular_day[!grepl("[0-9]{4}-07-04", regular_day$Dates),]
+#labor_day <- # First Monday in September 
+#columbus_day <- # Second Monday in October
+veterans_day <- regular_day[grepl("[0-9]{4}-11-11", regular_day$Dates),]
+regular_day <- regular_day[!grepl("[0-9]{4}-11-11", regular_day$Dates),]
+#thanks_giving <- #  Fourth Thursday in November
+christmas <- regular_day[grepl("[0-9]{4}-12-25", regular_day$Dates),]
+regular_day <- regular_day[!grepl("[0-9]{4}-12-25", regular_day$Dates),]
+```
+```{r}
+library(ggplot2)
+new_year_top_crime <- new_year[new_year$Category %in% as.vector(top_crimes$Var1),]
+g <- ggplot(new_year_top_crime, aes(Year))
+g + geom_bar() + geom_bar(aes(fill=Category)) + ggtitle("New Year Crime")
+```
+
+```{r}
+ind_top_crime <- independence_day[independence_day$Category %in% as.vector(top_crimes$Var1),]
+g <- ggplot(ind_top_crime, aes(Year))
+g + geom_bar() + geom_bar(aes(fill=Category)) + ggtitle("Independence Day Crime")
+```
+```{r}
+veterans_top_crime <- veterans_day[veterans_day$Category %in% as.vector(top_crimes$Var1),]
+g <- ggplot(veterans_top_crime, aes(Year))
+g + geom_bar() + geom_bar(aes(fill=Category)) + ggtitle("Veterans Day Crime")
+```
+
+```{r}
+christmas_top_crime <- christmas[christmas$Category %in% as.vector(top_crimes$Var1),]
+g <- ggplot(christmas_top_crime, aes(Year))
+g + geom_bar() + geom_bar(aes(fill=Category)) + ggtitle("Christmas Crime")
+```
+Time to do some averaging...
+```{r}
+library(matrixStats)
+new_year_avg <- colMedians(table(new_year_top_crime$Year, droplevels(new_year_top_crime$Category))) 
+ind_day_avg <- colMedians(table(ind_top_crime$Year, droplevels(ind_top_crime$Category)))
+veterans_avg <- colMedians(table(veterans_top_crime$Year, droplevels(veterans_top_crime$Category)))
+christmas_avg <- colMedians(table(christmas_top_crime$Year, droplevels(christmas_top_crime$Category)))
+reg_day_top_crime <- regular_day[regular_day$Category %in% as.vector(top_crimes$Var1),]
+reg_day_avg <- colMedians(table(reg_day_top_crime$DateOnly, droplevels(reg_day_top_crime$Category)))
+```
+```{r}
+holiday_comparison_df <- data.frame(NewYear=new_year_avg, Ind=ind_day_avg, Veterans=veterans_avg, Christmas=christmas_avg, Regular=reg_day_avg)
+row.names(holiday_comparison_df) <- sort(top_crimes$Var1)
+holiday_comparison_df
+```
+```{r}
+par(xpd=TRUE)
+barplot(as.matrix(holiday_comparison_df), main="Crimes in Special Days", col=rainbow(nrow(holiday_comparison_df)), xlab="Special Days", bty='L')
+legend("topright",
+       legend = sort(top_crimes$Var1), 
+       fill = rainbow(nrow(holiday_comparison_df)), cex=0.4)
+```
+Let's see how the plot varies throughout the 24 hours in a day:
+```{r}
+crime_time_df <- data.frame(Time=as.POSIXct(substring(train$Dates,12), format="%H:%M:%S"), Category=train$Category)
+#ggplot(data=crime_time_df, aes(x=crime_time_df$Time, y=)) + geom_point()
+```
+Let's see if weekends have more crimes than weekdays.
+```{r}
+library(ggplot2)
+wkday <- train
+wkday$Week <- "Weekday"
+wkday[wkday$DayOfWeek == "Saturday" | wkday$DayOfWeek == "Sunday",]$Week <- "Weekend"
+#wkday_top_crime <- wkday[wkday$Category %in% as.vector(top_crimes$Var1),]
+wkday_top_crime <- wkday
+wkday_result <- data.frame(Weekday=table(wkday_top_crime$Category, wkday_top_crime$Week)[,1]/count(wkday_top_crime$Week)$freq[1],
+                           Weekend=table(wkday_top_crime$Category, wkday_top_crime$Week)[,2]/count(wkday_top_crime$Week)$freq[2])
+wkday_result
+g + theme(legend.position="right")
+par(xpd=TRUE)
+barplot(as.matrix(wkday_result), main="Weekdays vs. Weekends", col=rainbow(nrow(wkday_result)), xlab="Day of Week", bty='L')
+legend("topright",
+       legend = sort(top_crimes$Var1), 
+       fill = rainbow(nrow(wkday_result)), cex=0.4)
+```
+It seems that whether a day is a weekday or a weekend doesn't affect both the category and the quantity of crimes...So criminals doesn't have day-offs! SAD!
+Umm common sense tells me that more crimes take place at night than during the day. Let's divide the time into day and night!
+```{r}
+
+```
+Also, maybe crimes are correlated with seasons? Let's check it out! But again, the incompleteness of the data causes us a lot of trouble and might lead to inaccuracies, so some sort of averaging is needed.
+```{r}
+seasons <- train
+# March, April, May <=> Spring
+seasons$Season <- "Spring"
+# June, July, August <=> Summer
+seasons[seasons$Month == "06" | seasons$Month == "07" | seasons$Month == "08",]$Season <- "Summer"
+# September, October, November <=> Fall
+seasons[seasons$Month == "09" | seasons$Month == "10" | seasons$Month == "11",]$Season <- "Fall"
+# December, January, February <=> Winter
+seasons[seasons$Month == "12" | seasons$Month == "01" | seasons$Month == "02",]$Season <- "Winter"
+table(seasons$Category, seasons$Season)
+seasons_std <- data.frame(Spring=table(seasons$Category, seasons$Season)[,"Spring"]/count(seasons$Season)[count(seasons$Season)$x == "Spring",]$freq, 
+                          Summer=table(seasons$Category, seasons$Season)[,"Summer"]/count(seasons$Season)[count(seasons$Season)$x == "Summer",]$freq,
+                          Fall=table(seasons$Category, seasons$Season)[,"Fall"]/count(seasons$Season)[count(seasons$Season)$x == "Fall",]$freq,
+                          Winter=table(seasons$Category, seasons$Season)[,"Winter"]/count(seasons$Season)[count(seasons$Season)$x == "Winter",]$freq)
+seasons_std 
+g + theme(legend.position="right")
+par(xpd=TRUE)
+barplot(as.matrix(seasons_std), main="Crime in All Seasons", col=rainbow(nrow(seasons_std)), xlab="Seasons", bty='L')
+legend("topright",
+       legend = sort(top_crimes$Var1), 
+       fill = rainbow(nrow(seasons_std)), cex=0.4)
+```
+PdDistrict is still unchecked.
+
+Decision Tree is also very helpful in data exploration to determine which variables are the most significant.
