@@ -272,6 +272,7 @@ Ok anyways... Thanks to Kelvin, I noticed there is a very strong correlation bet
 ```{r}
 #train$Descript
 library(tm)
+library(wordcloud)
 descript <- removeNumbers(removePunctuation(tolower(as.vector(train$Descript)))) 
 descript <- removeWords(descript, stopwords("en"))
 descript_corpus <- Corpus(VectorSource(train$Descript))
@@ -285,6 +286,9 @@ descript_dtm <- removeSparseTerms(descript_dtm, 0.975)
 findFreqTerms(descript_dtm, 100)
 raw_freq = data.frame(sort(colSums(as.matrix(descript_dtm)), decreasing=TRUE))
 raw_freq
+dim(raw_freq)
+freq_words <- rownames(raw_freq)
+freq_words
 wordcloud(rownames(raw_freq), raw_freq[,1], max.words=100, colors=brewer.pal(1, "Dark2"))
 ```
 ```{r}
@@ -292,6 +296,9 @@ descript_dtm_tfidf <- DocumentTermMatrix(descript_corpus, control = list(weighti
 descript_dtm_tfidf = removeSparseTerms(descript_dtm_tfidf, 0.975)
 freq = data.frame(sort(colSums(as.matrix(descript_dtm_tfidf)), decreasing=TRUE))
 freq
+freq_words <- c(freq_words, rownames(freq))
+freq_words <- unique(freq_words)
+freq_words
 wordcloud(rownames(freq), freq[,1], max.words=100, colors=brewer.pal(1, "Dark2"))
 ```
 Ok, let's try to search for some *keywords* in the descript column that matches the category column.
@@ -310,21 +317,30 @@ So about 20% of the DESCRIPT contains the CATEGORY keywords. **There is a rather
 How about the **holidays**? Let's get some data about the public holiday in San Francisco!!!
 ```{r}
 regular_day <- train
+train$Holiday <- "Regular"
 # Holidays 
 new_year <- regular_day[grepl("[0-9]{4}-01-01", regular_day$Dates),]
+train$Holiday[grepl("[0-9]{4}-01-01", train$Dates)] <- "NewYear"
 regular_day <- regular_day[!grepl("[0-9]{4}-01-01", regular_day$Dates),]
+#Valentine
+valentine <- regular_day[grepl("[0-9]{4}-02-14", regular_day$Dates),]
+train$Holiday[grepl("[0-9]{4}-02-14", train$Dates)] <- "Valentine"
+regular_day <- regular_day[!grepl("[0-9]{4}-02-14", regular_day$Dates),]
 #MLK <- # Third Monday in January
 #presidents_day <- # Third Monday in Febrary
 #easter <- # Arr
 #memorial_day <- # Last Monday in May
 independence_day <- regular_day[grepl("[0-9]{4}-07-04", regular_day$Dates),]
+train$Holiday[grepl("[0-9]{4}-07-04", train$Dates)] <- "Independence"
 regular_day <- regular_day[!grepl("[0-9]{4}-07-04", regular_day$Dates),]
 #labor_day <- # First Monday in September 
 #columbus_day <- # Second Monday in October
 veterans_day <- regular_day[grepl("[0-9]{4}-11-11", regular_day$Dates),]
+train$Holiday[grepl("[0-9]{4}-11-11", train$Dates)] <- "Veterans"
 regular_day <- regular_day[!grepl("[0-9]{4}-11-11", regular_day$Dates),]
 #thanks_giving <- #  Fourth Thursday in November
 christmas <- regular_day[grepl("[0-9]{4}-12-25", regular_day$Dates),]
+train$Holiday[grepl("[0-9]{4}-12-25", train$Dates)] <- "Christmas"
 regular_day <- regular_day[!grepl("[0-9]{4}-12-25", regular_day$Dates),]
 ```
 ```{r}
@@ -354,6 +370,8 @@ Time to do some averaging...
 ```{r}
 library(matrixStats)
 new_year_avg <- colMedians(table(new_year_top_crime$Year, droplevels(new_year_top_crime$Category))) 
+valentine_top_crime <- valentine[valentine$Category %in% as.vector(top_crimes$Var1),]
+valentine_avg <- colMedians(table(valentine_top_crime$Year, droplevels(valentine_top_crime$Category))) 
 ind_day_avg <- colMedians(table(ind_top_crime$Year, droplevels(ind_top_crime$Category)))
 veterans_avg <- colMedians(table(veterans_top_crime$Year, droplevels(veterans_top_crime$Category)))
 christmas_avg <- colMedians(table(christmas_top_crime$Year, droplevels(christmas_top_crime$Category)))
@@ -364,7 +382,7 @@ reg_day_avg <- colMedians(table(reg_day_top_crime$DateOnly, droplevels(reg_day_t
 #reg_day_avg
 ```
 ```{r}
-holiday_comparison_df <- data.frame(NewYear=new_year_avg, Ind=ind_day_avg, Veterans=veterans_avg, Christmas=christmas_avg, Regular=reg_day_avg)
+holiday_comparison_df <- data.frame(NewYear=new_year_avg, Valentine = valentine_avg, Ind=ind_day_avg, Veterans=veterans_avg, Christmas=christmas_avg, Regular=reg_day_avg)
 row.names(holiday_comparison_df) <- sort(top_crimes$Var1)
 holiday_comparison_df
 ```
@@ -386,11 +404,19 @@ library(ggplot2)
 wkday <- train
 wkday$Week <- "Weekday"
 wkday[wkday$DayOfWeek == "Saturday" | wkday$DayOfWeek == "Sunday",]$Week <- "Weekend"
-#wkday_top_crime <- wkday[wkday$Category %in% as.vector(top_crimes$Var1),]
+
+wkday_df <- (data.frame(Week=wkday$Week, Category=wkday$Category))
+wkday_df
+g <- ggplot(wkday_df, aes(Week))
+g + geom_bar() + geom_bar(aes(fill=Category)) + ggtitle("Weekday vs. Weekend") + theme(axis.text.x = element_text(angle=90,hjust=1))
+
 wkday_top_crime <- wkday
 wk_table <- table(wkday_top_crime$Week)
-wkday_result <- data.frame(Weekday=table(wkday_top_crime$Category, wkday_top_crime$Week)[,1]/wk_table["Weekday"],
-                           Weekend=table(wkday_top_crime$Category, wkday_top_crime$Week)[,2]/wk_table["Weekend"])
+#wkday_result <- data.frame(Weekday=table(wkday_top_crime$Category, wkday_top_crime$Week)[,1]/wk_table["Weekday"],
+#                          Weekend=table(wkday_top_crime$Category, wkday_top_crime$Week)[,2]/wk_table["Weekend"])
+wkday_result <- data.frame(Weekday=table(wkday_top_crime$Category, wkday_top_crime$Week)[,1]/5,
+                           Weekend=table(wkday_top_crime$Category, wkday_top_crime$Week)[,2]/2)
+     
 wkday_result
 g + theme(legend.position="right")
 par(xpd=TRUE)
@@ -403,10 +429,12 @@ It seems that whether a day is a weekday or a weekend doesn't affect both the ca
 Umm common sense tells me that more crimes take place at night than during the day. Let's divide the time into day and night!
 ```{r}
 library(chron)
+train$Time <- times(substring(train$Dates,12))
 dayNight <- data.frame(Times = times(substring(train$Dates,12)), Cat = train$Category)
 breaks <- c(0,6,10,14,18,24)/24
 labels <- c("EarlyMorning","Morning","Noon","Afternoon","Evening")
 dayNight$ind <- cut(dayNight$Times, breaks, labels, include.lowest = TRUE)
+train$TimeInDay <- cut(train$Time, breaks, labels, include.lowest = T)
 dayNight
 g <- ggplot(dayNight, aes(ind))
 g + geom_bar() + geom_bar(aes(fill=Cat)) + ggtitle("Crime in a day") + theme(axis.text.x = element_text(angle=90,hjust=1))
@@ -416,7 +444,9 @@ dayNight <- data.frame(Times = times(substring(train$Dates,12)), Cat = train$Cat
 breaks <- c(0,5, 20, 24)/24
 labels <- c("Night","Day","Night2")
 dayNight$ind <- cut(dayNight$Times, breaks, labels, include.lowest = TRUE)
+train$DayNight <- cut(train$Time, breaks, labels, include.lowest = T)
 dayNight$ind <- gsub("Night2", "Night", dayNight$ind)
+train$DayNight <- gsub("Night2", "Night", train$DayNight)
 g <- ggplot(dayNight, aes(ind))
 g + geom_bar() + geom_bar(aes(fill=Cat)) + ggtitle("Crime in a day") + theme(axis.text.x = element_text(angle=90,hjust=1))
 ```
@@ -426,38 +456,99 @@ Also, maybe crimes are correlated with seasons? Let's check it out! But again, t
 seasons <- train
 # March, April, May <=> Spring
 seasons$Season <- "Spring"
+train$Season <- "Spring"
 # June, July, August <=> Summer
 seasons[seasons$Month == "06" | seasons$Month == "07" | seasons$Month == "08",]$Season <- "Summer"
+train[train$Month == "06" | train$Month == "07" | train$Month == "08",]$Season <- "Summer"
 # September, October, November <=> Fall
 seasons[seasons$Month == "09" | seasons$Month == "10" | seasons$Month == "11",]$Season <- "Fall"
+train[train$Month == "09" | train$Month == "10" | train$Month == "11",]$Season <- "Fall"
 # December, January, February <=> Winter
 seasons[seasons$Month == "12" | seasons$Month == "01" | seasons$Month == "02",]$Season <- "Winter"
-table(seasons$Category, seasons$Season)
-seasons_table <- table(seasons$Season)
-seasons_std <- data.frame(Spring=table(seasons$Category, seasons$Season)[,"Spring"]/seasons_table["Spring"], 
-                          Summer=table(seasons$Category, seasons$Season)[,"Summer"]/seasons_table["Summer"],
-                          Fall=table(seasons$Category, seasons$Season)[,"Fall"]/seasons_table["Fall"],
-                          Winter=table(seasons$Category, seasons$Season)[,"Winter"]/seasons_table["Winter"])
-seasons_std 
-g + theme(legend.position="right")
-par(xpd=TRUE)
-barplot(as.matrix(seasons_std), main="Crime in All Seasons", col=rainbow(nrow(seasons_std)), xlab="Seasons", bty='L')
-legend("topright",
-       legend = sort(top_crimes$Var1), 
-       fill = rainbow(nrow(seasons_std)), cex=0.4)
+train[train$Month == "12" | train$Month == "01" | train$Month == "02",]$Season <- "Winter"
+season_df <- (data.frame(Season=seasons$Season, Category=seasons$Category))
+g <- ggplot(season_df, aes(Season))
+g + geom_bar() + geom_bar(aes(fill=Category)) + ggtitle("Crime by Season") + theme(axis.text.x = element_text(angle=90,hjust=1))
 ```
 PdDistrict is still unchecked.
 ```{r}
-
-```
-
-Decision Tree is also very helpful in data exploration to determine which variables are the most significant.
-```{r}
-
+area_df <- (data.frame(District=train$PdDistrict, Category=train$Category))
+area_df
+g <- ggplot(area_df, aes(District))
+g + geom_bar() + geom_bar(aes(fill=Category)) + ggtitle("Crime by District") + theme(axis.text.x = element_text(angle=90,hjust=1))
 ```
 Let's do some text mining as this is by far the most useful information!
+First, deal with synonyms of the cats
 ```{r}
+train$Keyword <- NA
+library("xlsx")
 library("wordnet")
-synonyms(train$Category[1], "NOUN")
+#setDict("/usr/local/Cellar/wordnet/3.1")
+#initDict()
+old_cats <- tolower(names(sort(table(train$Category), decreasing=F)))
+for (cat in old_cats) {
+  origin_cat <- cat
+  if (grepl("/", cat)) {
+    cat <- strsplit(cat, "/")
+    for (word in cat[[1]]) {
+      syn_list <- synonyms(word, "NOUN")
+      pattern <- paste(syn_list, collapse = "|")
+      train$Keyword[grepl(pattern, train$Descript)] <- origin_cat
+    }
+  } else {
+    cat <- removeWords(cat, stopwords("en"))
+    cat <- trimws(gsub(" +", " ", cat)) 
+    cat <- strsplit(cat, " ")
+    for (word in cat[[1]]) {
+      patter <- paste(synonyms(word, "NOUN"), collapse = "|")
+      train$Keyword[grepl(pattern, train$Descript)] <- origin_cat
+    }
+  }
+}
 ```
+Words with top frequency.
+```{r}
+# Words in Descript with top frequency
+freq_words <- (tolower(freq_words))
+remove <- c("FROM", "WITH")
+freq_words <- freq_words[!freq_words %in% remove]
+for (word in freq_words) {
+  train$Keyword[grepl(word, train$Descript)] <- word
+}
+#freq_words
+#freq_words_str <- paste(freq_words, collapse = "|")
+#freq_words_str
+```
+Lastly, perfect matches.
+```{r}
+library(tm)
+library(stringr)
+# Preprocess the categories 
+train$Descript <- tolower(train$Descript)
+old_cats <- tolower(names(sort(table(train$Category), decreasing=F)))
+for (cat in old_cats) {
+  if (grepl("/", cat)) {
+    pattern <- gsub("/", "|", cat)
+    #print(cat)
+  } else {
+    pattern <- removeWords(cat, stopwords("en"))
+    pattern <- trimws(gsub(" +", " ", pattern)) 
+  }
+  train$Keyword[grepl(pattern, train$Descript)] <- cat
+}
+```
+Finally we need to take a look at the resolution...
+```{r}
+res_df <- data.frame(Resolution = train$Resolution, Category = train$Category)
+g <- ggplot(res_df, aes(Resolution))
+g + geom_bar() + geom_bar(aes(fill=Category)) + ggtitle("Crime Resolutions") + theme(axis.text.x = element_text(angle=90,hjust=1)) +
+  theme(legend.position="right") + theme(legend.text = element_text(size=5))
+```
+```{r}
+colnames(train)[which(names(train) == "Keyword")] <- "Keyword"
+prop.table(table(is.na(train$Keyword)))
+table(train$Keyword)
+unique(train$Keyword)
+```
+Need to improve...Reduce TRUE values...
 
