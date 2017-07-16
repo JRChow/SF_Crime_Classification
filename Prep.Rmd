@@ -12,6 +12,7 @@ train <- subset(train, select = -c(Descript, Resolution))
 #full <- merge(train, test)
 ```
 ```{r}
+train <- train[!(train$Y > 40),]
 train$Year <- substring(train$Dates, 1, 4)
 train$Month <- substring(train$Dates, 6, 7)
 train$Season <- "Spring"
@@ -28,18 +29,68 @@ train$DayNight <- cut(times(substring(train$Dates,12)), breaks, labels, include.
 train$DayNight <- gsub("Night2", "Night", train$DayNight)
 train <- subset(train, select = -c(Dates, Address))
 ```
+
+
 ```{r}
 train$Year <- as.factor(train$Year)
 train$Month <- as.factor(train$Month)
 train$Season <- as.factor(train$Season)
 train$DayNight <- as.factor(train$DayNight)
 sapply(train, class)
+tiny_sample <- train[sample(nrow(train), nrow(train)*0.1),]
+tiny_sample$Year <- as.factor(tiny_sample$Year)
+tiny_sample$Month <- as.factor(tiny_sample$Month)
+tiny_sample$Season <- as.factor(tiny_sample$Season)
+tiny_sample$DayNight <- as.factor(tiny_sample$DayNight)
+```
+
+```{r}
+test$Year <- substring(test$Dates, 1, 4)
+test$Month <- substring(test$Dates, 6, 7)
+test$Season <- "Spring"
+test[test$Month == "06" | test$Month == "07" | test$Month == "08",]$Season <- "Summer"
+test[test$Month == "09" | test$Month == "10" | test$Month == "11",]$Season <- "Fall"
+test[test$Month == "12" | test$Month == "01" | test$Month == "02",]$Season <- "Winter"
+breaks <- c(0,6,10,14,18,24)/24
+labels <- c("EarlyMorning","Morning","Noon","Afternoon","Evening")
+library(chron)
+test$TimeInDay <- cut(times(substring(test$Dates,12)), breaks, labels, include.lowest = T)
+breaks <- c(0,5, 20, 24)/24
+labels <- c("Night","Day","Night2")
+test$DayNight <- cut(times(substring(test$Dates,12)), breaks, labels, include.lowest = T)
+test$DayNight <- gsub("Night2", "Night", test$DayNight)
+test <- subset(test, select = -c(Dates, Address))
+test$Year <- as.factor(test$Year)
+test$Month <- as.factor(test$Month)
+test$Season <- as.factor(test$Season)
+test$DayNight <- as.factor(test$DayNight)
 ```
 
 ```{r}
 library(party)
 library(randomForest)
-output.forest <- randomForest(Category ~ DayOfWeek + PdDistrict + X + Y + Year + Month + Season + TimeInDay + DayNight, 
-           data = train)
+set.seed(1234)
+tiny_fit <- randomForest(Category ~ DayOfWeek + PdDistrict + Year + Month + Season + TimeInDay + DayNight + X + Y, 
+           data = tiny_sample,
+           importance = TRUE,
+           ntree=200)
+varImpPlot(tiny_fit)
+summary(tiny_fit)
+save(tiny_fit, file="tiny_fit.rda")
+tiny_pred <- predict(tiny_fit, test)
+tiny_result <- as.data.frame(matrix(0, ncol=40,nrow=nrow(test)))
+names(tiny_result) <- c("Id", as.character(unique(train$Category)))
+tiny_result[,"Id"] <- seq.int(from=0, to=nrow(test)-1)
+load("tiny_fit.rda")
+for (i in 1:length(tiny_pred)) {
+  tiny_result[i,as.character(tiny_pred[i])] <- 1
+}
+write.csv(tiny_result, file="tiny_result.csv")
+```
+
+```{r}
+#Experiment
+data(iris)
+encoder <- onehot(iris)
 ```
 
