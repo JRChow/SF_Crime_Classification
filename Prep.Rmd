@@ -77,13 +77,14 @@ tiny_fit <- randomForest(Category ~ DayOfWeek + PdDistrict + Year + Month + Seas
 varImpPlot(tiny_fit)
 summary(tiny_fit)
 save(tiny_fit, file="tiny_fit.rda")
+load("tiny_fit.rda")
 tiny_pred <- predict(tiny_fit, test)
 tiny_result <- as.data.frame(matrix(0, ncol=40,nrow=nrow(test)))
 names(tiny_result) <- c("Id", as.character(unique(train$Category)))
 tiny_result[,"Id"] <- seq.int(from=0, to=nrow(test)-1)
-load("tiny_fit.rda")
 for (i in 1:length(tiny_pred)) {
   tiny_result[i,as.character(tiny_pred[i])] <- 1
+  #print(i*100/length(tiny_pred))
 }
 write.csv(tiny_result, file="tiny_result.csv")
 ```
