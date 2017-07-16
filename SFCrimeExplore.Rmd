@@ -551,4 +551,7 @@ table(train$Keyword)
 unique(train$Keyword)
 ```
 Need to improve...Reduce TRUE values...
+```{r}
+table(train$Address)
+```
 
