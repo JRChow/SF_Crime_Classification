@@ -1,0 +1,68 @@
+---
+title: "Training"
+output: html_notebook
+---
+```{r}
+train <- read.csv(file="train.csv", na.strings=c(""))
+train <- subset(train, select = -c(Descript, Resolution))
+```
+```{r}
+train$Year <- substring(train$Dates, 1, 4)
+train$Month <- substring(train$Dates, 6, 7)
+train$Day <- substring(train$Dates, 9, 10)
+train$Hour <- substring(train$Dates, 12, 13)
+train$Season <- "Spring"
+train[train$Month == "06" | train$Month == "07" | train$Month == "08",]$Season <- "Summer"
+train[train$Month == "09" | train$Month == "10" | train$Month == "11",]$Season <- "Fall"
+train[train$Month == "12" | train$Month == "01" | train$Month == "02",]$Season <- "Winter"
+breaks <- c(0,6,10,14,18,24)/24
+labels <- c("EarlyMorning","Morning","Noon","Afternoon","Evening")
+library(chron)
+train$TimeInDay <- cut(times(substring(train$Dates,12)), breaks, labels, include.lowest = T)
+breaks <- c(0,5, 20, 24)/24
+labels <- c("Night","Day","Night2")
+train$DayNight <- cut(times(substring(train$Dates,12)), breaks, labels, include.lowest = T)
+train$DayNight <- gsub("Night2", "Night", train$DayNight)
+train <- subset(train, select = -c(Dates, Address))
+```
+```{r}
+train <- train[!(train$Y>50),]
+train$Year <- as.factor(train$Year)
+train$Month <- as.factor(train$Month)
+train$Day <- as.factor(train$Day)
+train$Hour <- as.factor(train$Hour)
+train$Season <- as.factor(train$Season)
+train$DayNight <- as.factor(train$DayNight)
+set.seed(1234)
+train_sample <- train[sample(nrow(train), 0.01*nrow(train)),]
+train_sample$Year <- as.factor(train_sample$Year)
+train_sample$Month <- as.factor(train_sample$Month)
+train_sample$Day <- as.factor(train_sample$Day)
+train_sample$Hour <- as.factor(train_sample$Hour)
+train_sample$Season <- as.factor(train_sample$Season)
+train_sample$DayNight <- as.factor(train_sample$DayNight)
+```
+
+```{r}
+library(party)
+library(randomForest)
+library(caret)
+library(rpart)
+train_control<- trainControl(method="cv", number=3)
+cf_3f_small_fit <- train(Category ~ DayOfWeek + PdDistrict + X + Y + Year + Month + Season + TimeInDay + DayNight,
+                          data=train, 
+                          trControl=train_control, 
+                          method="cforest")
+save(cf_3f_small_fit, file="cf_3f_small_fit")
+varImpPlot(cf_3f_small_fit)
+summary(cf_3f_small_fit)
+```
+
+```{r}
+library(caret)
+set.seed(999)
+#fitControl <- trainControl(method = "repeatedcv", number = 2, repeats = 2)
+#gbm_fit <- train(Category ~ ., data = train_sample, method = "gbm", trControl = fitControl,verbose = FALSE)
+gbm_fit <- train(Category ~ ., data = train_sample, method = "gbm", verbose = FALSE)
+save(gbm_fit, file="gmb_fit")
+```
