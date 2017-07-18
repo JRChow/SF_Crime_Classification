@@ -552,12 +552,6 @@ unique(train$Keyword)
 ```
 Need to improve...Reduce TRUE values...
 ```{r}
-```
-
-```{r}
-library(ggplot2)
-train <- train[!(train$Y > 40),]
-g <- ggplot(train, aes(X, Y))
-g + geom_jitter(aes(colour = Category))
+table(train$Address)
 ```
 
