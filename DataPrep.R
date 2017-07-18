@@ -74,22 +74,20 @@ labels <- c("Night","Day","Night2")
 test$DayNight <- cut(times(substring(test$Dates,12)), breaks, labels, include.lowest = T)
 test$DayNight <- gsub("Night2", "Night", test$DayNight)
 
-# test_rd <- c()
-# test_inte <- c()
-#  for (i in 1:length(test$X)){
-#    if(length(grep("/", test$Address[i]))>0){
-#      test_rd <- append(test_rd,0)
-#      test_inte <- append(test_inte,1)
-#    }
-#    else{
-#      test_rd <- append(test_rd,1)
-#      test_inte <- append(test_inte,0)
-#    }
-#  }
-# save(test_rd, file="test_road.rda")
-# save(test_inte, file="test_intersection.rda")
-load("test_road.rda")
-load("test_intersection.rda")
+test_rd <- c()
+test_inte <- c()
+ for (i in 1:length(test$X)){
+   if(length(grep("/", test$Address[i]))>0){
+     test_rd <- append(test_rd,0)
+     test_inte <- append(test_inte,1)
+   }
+   else{
+     test_rd <- append(test_rd,1)
+     test_inte <- append(test_inte,0)
+   }
+ }
+save(test_rd, file="test_road.rda")
+save(test_inte, file="test_intersection.rda")
 test$Road <- test_rd
 test$Cross <- test_inte
 

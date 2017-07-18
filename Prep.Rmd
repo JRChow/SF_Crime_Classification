@@ -12,6 +12,7 @@ train <- subset(train, select = -c(Descript, Resolution))
 #full <- merge(train, test)
 ```
 ```{r}
+train <- train[!(train$Y > 40),]
 train$Year <- substring(train$Dates, 1, 4)
 train$Month <- substring(train$Dates, 6, 7)
 train$Season <- "Spring"
@@ -28,34 +29,21 @@ train$DayNight <- cut(times(substring(train$Dates,12)), breaks, labels, include.
 train$DayNight <- gsub("Night2", "Night", train$DayNight)
 train <- subset(train, select = -c(Dates, Address))
 ```
+
+
 ```{r}
-train <- train[!(train$Y>50),]
 train$Year <- as.factor(train$Year)
 train$Month <- as.factor(train$Month)
 train$Season <- as.factor(train$Season)
 train$DayNight <- as.factor(train$DayNight)
-set.seed(1234)
-train_sample <- train[sample(nrow(train), 0.1*nrow(train)),]
-train_sample$Year <- as.factor(train_sample$Year)
-train_sample$Month <- as.factor(train_sample$Month)
-train_sample$Season <- as.factor(train_sample$Season)
-train_sample$DayNight <- as.factor(train_sample$DayNight)
+sapply(train, class)
+tiny_sample <- train[sample(nrow(train), nrow(train)*0.1),]
+tiny_sample$Year <- as.factor(tiny_sample$Year)
+tiny_sample$Month <- as.factor(tiny_sample$Month)
+tiny_sample$Season <- as.factor(tiny_sample$Season)
+tiny_sample$DayNight <- as.factor(tiny_sample$DayNight)
 ```
 
-```{r}
-library(party)
-library(randomForest)
-library(caret)
-library(rpart)
-train_control<- trainControl(method="cv", number=3)
-cf_3f_small_fit <- train(Category ~ DayOfWeek + PdDistrict + X + Y + Year + Month + Season + TimeInDay + DayNight,
-                          data=train, 
-                          trControl=train_control, 
-                          method="cforest")
-save(cf_3f_small_fit, file="cf_3f_small_fit")
-varImpPlot(cf_3f_small_fit)
-summary(cf_3f_small_fit)
-```
 ```{r}
 test$Year <- substring(test$Dates, 1, 4)
 test$Month <- substring(test$Dates, 6, 7)
@@ -76,13 +64,33 @@ test$Year <- as.factor(test$Year)
 test$Month <- as.factor(test$Month)
 test$Season <- as.factor(test$Season)
 test$DayNight <- as.factor(test$DayNight)
-pred <- predict(output.forest, test)
 ```
 
 ```{r}
-library(caret)
-set.seed(999)
-fitControl <- trainControl(method = "repeatedcv", number = 2, repeats = 2)
-gbm_fit <- train(Category ~ ., data = train_sample, method = "gbm", trControl = fitControl,verbose = FALSE)
-save(gbm_fit, file="gmb_fit.rda")
+library(party)
+library(randomForest)
+set.seed(1234)
+tiny_fit <- randomForest(Category ~ DayOfWeek + PdDistrict + Year + Month + Season + TimeInDay + DayNight + X + Y, 
+           data = tiny_sample,
+           importance = TRUE,
+           ntree=200)
+varImpPlot(tiny_fit)
+summary(tiny_fit)
+save(tiny_fit, file="tiny_fit.rda")
+load("tiny_fit.rda")
+tiny_pred <- predict(tiny_fit, test)
+tiny_result <- as.data.frame(matrix(0, ncol=40,nrow=nrow(test)))
+names(tiny_result) <- c("Id", as.character(unique(train$Category)))
+tiny_result[,"Id"] <- seq.int(from=0, to=nrow(test)-1)
+for (i in 1:length(tiny_pred)) {
+  tiny_result[i,as.character(tiny_pred[i])] <- 1
+  #print(i*100/length(tiny_pred))
+}
+write.csv(tiny_result, file="tiny_result.csv")
 ```
+
+```{r}
+#Experiment
+data(iris)
+```
+
